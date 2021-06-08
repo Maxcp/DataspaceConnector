@@ -6,6 +6,7 @@ import de.fraunhofer.iais.eis.ResourceUpdateMessageImpl;
 import de.fraunhofer.iais.eis.util.ConstraintViolationException;
 import de.fraunhofer.isst.dataspaceconnector.exceptions.message.MessageException;
 import de.fraunhofer.isst.dataspaceconnector.exceptions.resource.ResourceException;
+import de.fraunhofer.isst.dataspaceconnector.services.external.ExternalRestService;
 import de.fraunhofer.isst.dataspaceconnector.services.messages.implementation.ResourceUpdateMessageService;
 import de.fraunhofer.isst.ids.framework.configuration.ConfigurationContainer;
 import de.fraunhofer.isst.ids.framework.configuration.SerializerProvider;
@@ -19,6 +20,7 @@ import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -39,6 +41,10 @@ public class ResourceUpdateMessageHandler implements MessageHandler<ResourceUpda
     private final ResourceUpdateMessageService messageService;
     private final ConfigurationContainer configurationContainer;
     private final SerializerProvider serializerProvider;
+    private final ExternalRestService externalRestService;
+
+    @Value("${partchain.pseudopush.enabled:false}")
+    private boolean isPseudoPushEnabled;
 
     /**
      * Constructor for ResourceUpdateMessageHandler.
@@ -50,7 +56,7 @@ public class ResourceUpdateMessageHandler implements MessageHandler<ResourceUpda
     @Autowired
     public ResourceUpdateMessageHandler(ConfigurationContainer configurationContainer,
                                         ResourceUpdateMessageService resourceUpdateMessageService,
-                                        SerializerProvider serializerProvider)
+                                        SerializerProvider serializerProvider, ExternalRestService externalRestService)
             throws IllegalArgumentException {
         if (configurationContainer == null)
             throw new IllegalArgumentException("The ConfigurationContainer cannot be null.");
@@ -60,10 +66,14 @@ public class ResourceUpdateMessageHandler implements MessageHandler<ResourceUpda
 
         if (serializerProvider == null)
             throw new IllegalArgumentException("The SerializerProvider cannot be null.");
+        if (isPseudoPushEnabled && externalRestService == null)
+            throw new IllegalArgumentException("The externalRestService cannot be null.");
 
         this.configurationContainer = configurationContainer;
         this.messageService = resourceUpdateMessageService;
         this.serializerProvider = serializerProvider;
+        this.externalRestService = externalRestService;
+
 
     }
 
@@ -121,6 +131,11 @@ public class ResourceUpdateMessageHandler implements MessageHandler<ResourceUpda
         boolean successfulUpdate = false;
         try {
             successfulUpdate = messageService.updateResource(resource);
+            LOGGER.info("Pseudo Push enabled: {}", isPseudoPushEnabled);
+            if (isPseudoPushEnabled) {
+                externalRestService.doPost(resource.getId());
+                LOGGER.info("Pseudo Push Message sent");
+            }
         } catch (ResourceException exception) {
             LOGGER.warn("Unable to update data or metadata. [exception=({})]", exception.getMessage());
         } catch (MessageException exception) {
@@ -130,9 +145,10 @@ public class ResourceUpdateMessageHandler implements MessageHandler<ResourceUpda
         try {
             // Build response header.
             messageService.setResponseParameters(message.getIssuerConnector(), message.getId());
-            if (successfulUpdate)
+            if (successfulUpdate) {
                 return BodyResponse.create(messageService.buildResponseHeader(),
                         "Message received and resource updated.");
+            }
             else
                 return BodyResponse.create(messageService.buildResponseHeader(),
                         "Message received but resource not updated.");
