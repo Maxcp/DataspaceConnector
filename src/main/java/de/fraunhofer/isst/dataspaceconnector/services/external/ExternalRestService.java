@@ -11,6 +11,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 
@@ -47,7 +48,7 @@ public class ExternalRestService {
         try {
             ResponseEntity<String> response = restTemplate.exchange(pseudoPushURL, HttpMethod.POST, request, String.class);
             LOGGER.info("Response from call: {}", response.getBody());
-        } catch (HttpServerErrorException e) {
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
             LOGGER.error("Error: Response from call: {}", e.getMessage());
         }
     }
